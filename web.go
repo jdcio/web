@@ -10,20 +10,26 @@ import (
 	"time"
 )
 
-func Boot(handler http.Handler, certGlob string, userName string) {
-	p80, err := sudoless.Port(80)
-	if err != nil {
-		log.Printf("Failed to open port %v", err)
-	}
-	p433, err := sudoless.Port(433)
-	if err != nil {
-		log.Printf("Failed to open port %v", err)
-	}
-	certs := sudoless.Certs(certGlob)
-	sudoless.DropPrivileges(userName)
+var p80, p443 net.Listener
+var certs []tls.Certificate
+var err error
 
+func Load(certGlob string, userName string) {
+	p80, err = sudoless.Port(80)
+	if err != nil {
+		log.Printf("Failed to open port %v", err)
+	}
+	p443, err = sudoless.Port(443)
+	if err != nil {
+		log.Printf("Failed to open port %v", err)
+	}
+	certs = sudoless.Certs(certGlob)
+	sudoless.DropPrivileges(userName)
+}
+
+func Serve(handler http.Handler) {
 	bootHTTP(p80)
-	bootHTTPS(handler, p433, certs)
+	bootHTTPS(handler, p443, certs)
 }
 
 func bootHTTP(p80 net.Listener) {
@@ -35,7 +41,6 @@ func bootHTTP(p80 net.Listener) {
 			url := "https://" + req.Host + req.URL.String()
 			http.Redirect(w, req, url, http.StatusMovedPermanently)
 		}),
-		Addr: ":80",
 	}
 	go func() { log.Fatal(httpSrv.Serve(p80)) }()
 }
@@ -47,7 +52,6 @@ func bootHTTPS(handler http.Handler, p443 net.Listener, certs []tls.Certificate)
 		IdleTimeout:  120 * time.Second,
 		TLSConfig:    tlsconfig.Secure(certs),
 		Handler:      handler,
-		Addr:         ":443",
 	}
 	log.Println(srv.ServeTLS(p443, "", ""))
 }
